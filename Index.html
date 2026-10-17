@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editor y Gestor de PDF Profesional</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- FontAwesome para iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PDF.js para renderizar -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    </script>
+    <!-- pdf-lib para modificar/unir/extraer PDFs -->
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <style>
+        .page-canvas-container {
+            position: relative;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            background: white;
+            margin: 0 auto;
+            user-select: none;
+        }
+        .canvas-element {
+            position: absolute;
+            cursor: move;
+            border: 1px dashed transparent;
+        }
+        .canvas-element:hover, .canvas-element.active {
+            border-color: #3b82f6;
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+        .resize-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: #3b82f6;
+            border: 1px solid white;
+            display: none;
+        }
+        .canvas-element.active .resize-handle {
+            display: block;
+        }
+        .handle-se { right: -5px; bottom: -5px; cursor: se-resize; }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans text-gray-800 min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-slate-900 text-white shadow-md py-4 px-6 flex flex-wrap justify-between items-center gap-4">
+        <div class="flex items-center space-x-3">
+            <div class="bg-blue-600 p-2 rounded-lg text-xl"><i class="fa-solid fa-file-pdf"></i></div>
+            <div>
+                <h1 class="text-lg font-bold">Gestor y Editor PDF Web</h1>
+                <p class="text-xs text-slate-400">Edita, une, extrae y guarda tus documentos localmente</p>
+            </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+            <label class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow">
+                <i class="fa-solid fa-upload"></i> Subir PDF
+                <input type="file" id="fileInput" accept="application/pdf" class="hidden">
+            </label>
+            <label class="cursor-pointer bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow">
+                <i class="fa-solid fa-plus-circle"></i> Unir otro PDF
+                <input type="file" id="mergeInput" accept="application/pdf" class="hidden">
+            </label>
+            <button id="saveBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow disabled:opacity-50" disabled>
+                <i class="fa-solid fa-download"></i> Guardar / Descargar PDF
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 flex flex-col md:flex-row overflow-hidden">
+        
+        <!-- Sidebar: Páginas y Herramientas -->
+        <aside class="w-full md:w-80 bg-white border-r border-gray-200 flex flex-col h-[calc(100vh-73px)]">
+            <div class="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                <h2 class="font-semibold text-sm text-gray-700"><i class="fa-solid fa-copy mr-1"></i> Páginas del Documento</h2>
+                <span id="pageCountBadge" class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">0 págs</span>
+            </div>
+
+            <!-- Miniaturas -->
+            <div id="thumbnailsContainer" class="flex-1 overflow-y-auto p-4 space-y-3">
+                <div class="text-center text-gray-400 py-12 text-sm">
+                    <i class="fa-solid fa-arrow-up-from-bracket text-3xl mb-2 block"></i>
+                    Sube un documento PDF para comenzar
+                </div>
+            </div>
+
+            <!-- Herramientas de Edición en Página Activa -->
+            <div class="p-4 border-t border-gray-200 bg-gray-50">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Herramientas de Edición</h3>
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="addTextBtn" class="bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 py-1.5 px-3 rounded text-xs font-medium flex items-center justify-center gap-1.5 transition shadow-xs disabled:opacity-50" disabled>
+                        <i class="fa-solid fa-font text-blue-600"></i> Añadir Texto
+                    </button>
+                    <label class="bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 py-1.5 px-3 rounded text-xs font-medium flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer disabled:opacity-50" id="imageLabel">
+                        <i class="fa-solid fa-image text-emerald-600"></i> Insertar Imagen
+                        <input type="file" id="imageInput" accept="image/*" class="hidden" disabled>
+                    </label>
+                    <button id="addWhiteoutBtn" class="bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 py-1.5 px-3 rounded text-xs font-medium flex items-center justify-center gap-1.5 transition shadow-xs disabled:opacity-50 col-span-2" disabled>
+                        <i class="fa-solid fa-eraser text-amber-600"></i> Parche Blanco (Tapar Texto)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Acciones de Gestión de Hojas -->
+            <div class="p-4 border-t border-gray-200 grid grid-cols-2 gap-2">
+                <button id="extractPageBtn" class="bg-amber-500 hover:bg-amber-600 text-white py-1.5 px-2 rounded text-xs font-medium transition flex items-center justify-center gap-1 shadow-xs disabled:opacity-50" disabled>
+                    <i class="fa-solid fa-file-export"></i> Extraer Página
+                </button>
+                <button id="deletePageBtn" class="bg-rose-600 hover:bg-rose-700 text-white py-1.5 px-2 rounded text-xs font-medium transition flex items-center justify-center gap-1 shadow-xs disabled:opacity-50" disabled>
+                    <i class="fa-solid fa-trash-can"></i> Borrar Página
+                </button>
+            </div>
+        </aside>
+
+        <!-- Canvas Principal (Visualizador) -->
+        <section class="flex-1 bg-slate-200 overflow-auto p-6 flex items-center justify-center relative">
+            <div id="canvasWrapper" class="relative shadow-2xl rounded overflow-hidden bg-white">
+                <div id="emptyState" class="text-center text-gray-500 p-12">
+                    <i class="fa-solid fa-file-pdf text-6xl text-gray-300 mb-4 block"></i>
+                    <p class="text-lg font-medium">Ningún PDF seleccionado</p>
+                    <p class="text-sm text-gray-400">Selecciona o arrastra un archivo PDF en la parte superior.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Script principal de lógica -->
+    <script>
+        let pdfDoc = null;
+        let pageNum = 1;
+        let pageAnnotations = {}; // Almacena elementos añadidos por página
+        let currentFileArrayBuffer = null;
+
+        const fileInput = document.getElementById('fileInput');
+        const mergeInput = document.getElementById('mergeInput');
+        const imageInput = document.getElementById('imageInput');
+        const saveBtn = document.getElementById('saveBtn');
+        const addTextBtn = document.getElementById('addTextBtn');
+        const addWhiteoutBtn = document.getElementById('addWhiteoutBtn');
+        const extractPageBtn = document.getElementById('extractPageBtn');
+        const deletePageBtn = document.getElementById('deletePageBtn');
+        const thumbnailsContainer = document.getElementById('thumbnailsContainer');
+        const canvasWrapper = document.getElementById('canvasWrapper');
+        const pageCountBadge = document.getElementById('pageCountBadge');
+
+        // Manejar subida de archivo inicial
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const arrayBuffer = await file.arrayBuffer();
+            currentFileArrayBuffer = arrayBuffer;
+            await loadPDF(arrayBuffer);
+        });
+
+        async function loadPDF(data) {
+            try {
+                pdfDoc = await pdfjsLib.getDocument({ data }).promise;
+                pageAnnotations = {};
+                for (let i = 1; i <= pdfDoc.numPages; i++) {
+                    pageAnnotations[i] = [];
+                }
+                pageCountBadge.textContent = `${pdfDoc.numPages} págs`;
+                pageNum = 1;
+                renderThumbnails();
+                await renderPage(pageNum);
+                
+                // Habilitar controles
+                saveBtn.disabled = false;
+                addTextBtn.disabled = false;
+                imageInput.disabled = false;
+                addWhiteoutBtn.disabled = false;
+                extractPageBtn.disabled = false;
+                deletePageBtn.disabled = false;
+            } catch (err) {
+                alert("Error al cargar el archivo PDF.");
+                console.error(err);
+            }
+        }
+
+        // Unir PDFs
+        mergeInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file || !currentFileArrayBuffer) return;
+            const mergeBuffer = await file.arrayBuffer();
+
+            const donorDoc = await PDFLib.PDFDocument.load(mergeBuffer);
+            const currentDoc = await PDFLib.PDFDocument.load(currentFileArrayBuffer);
+
+            const copiedPages = await currentDoc.copyPages(donorDoc, donorDoc.getPageIndices());
+            copiedPages.forEach((page) => currentDoc.addPage(page));
+
+            const pdfBytes = await currentDoc.save();
+            currentFileArrayBuffer = pdfBytes.buffer;
+            await loadPDF(currentFileArrayBuffer);
+            alert("¡PDF unido correctamente!");
+        });
+
+        // Renderizar miniaturas
+        async function renderThumbnails() {
+            thumbnailsContainer.innerHTML = '';
+            for (let i = 1; i <= pdfDoc.numPages; i++) {
+                const page = await pdfDoc.getPage(i);
+                const viewport = page.getViewport({ scale: 0.2 });
+                const canvas = document.createElement('canvas');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                const context = canvas.getContext('2d');
+                await page.render({ canvasContext: context, viewport }).promise;
+
+                const div = document.createElement('div');
+                div.className = `flex items-center gap-3 p-2 rounded-lg cursor-pointer border transition ${i === pageNum ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`;
+                div.innerHTML = `<span class="text-xs font-bold text-gray-500 w-4">${i}</span><div class="shadow-sm bg-white overflow-hidden rounded border border-gray-300"></div>`;
+                div.querySelector('div').appendChild(canvas);
+                
+                div.onclick = () => {
+                    pageNum = i;
+                    renderThumbnails();
+                    renderPage(pageNum);
+                };
+                thumbnailsContainer.appendChild(div);
+            }
+        }
+
+        // Renderizar Página Principal con Canvas y Elementos
+        async function renderPage(num) {
+            canvasWrapper.innerHTML = '';
+            const page = await pdfDoc.getPage(num);
+            const viewport = page.getViewport({ scale: 1.5 });
+
+            const container = document.createElement('div');
+            container.className = 'page-canvas-container';
+            container.style.width = `${viewport.width}px`;
+            container.style.height = `${viewport.height}px`;
+
+            const canvas = document.createElement('canvas');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            container.appendChild(canvas);
+
+            const context = canvas.getContext('2d');
+            await page.render({ canvasContext: context, viewport }).promise;
+
+            canvasWrapper.appendChild(container);
+
+            // Renderizar anotaciones existentes para esta página
+            if (pageAnnotations[num]) {
+                pageAnnotations[num].forEach(ann => renderAnnotationElement(container, ann));
+            }
+        }
+
+        function renderAnnotationElement(container, ann) {
+            const el = document.createElement('div');
+            el.className = 'canvas-element';
+            el.style.left = `${ann.x}px`;
+            el.style.top = `${ann.y}px`;
+            if (ann.width) el.style.width = `${ann.width}px`;
+            if (ann.height) el.style.height = `${ann.height}px`;
+
+            if (ann.type === 'text') {
+                el.contentEditable = true;
+                el.style.fontFamily = 'sans-serif';
+                el.style.fontSize = `${ann.fontSize || 16}px`;
+                el.style.color = ann.color || '#000000';
+                el.style.padding = '2px 4px';
+                el.innerText = ann.text;
+                el.oninput = (e) => { ann.text = e.target.innerText; };
+            } else if (ann.type === 'whiteout') {
+                el.style.backgroundColor = '#ffffff';
+                el.style.border = '1px solid #cbd5e1';
+                el.style.width = ann.width ? `${ann.width}px` : '100px';
+                el.style.height = ann.height ? `${ann.height}px` : '30px';
+                
+                const handle = document.createElement('div');
+                handle.className = 'resize-handle handle-se';
+                el.appendChild(handle);
+                makeResizable(el, ann);
+            } else if (ann.type === 'image') {
+                const img = document.createElement('img');
+                img.src = ann.src;
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.pointerEvents = 'none';
+                el.appendChild(img);
+                
+                const handle = document.createElement('div');
+                handle.className = 'resize-handle handle-se';
+                el.appendChild(handle);
+                makeResizable(el, ann);
+            }
+
+            makeDraggable(el, ann);
+            container.appendChild(el);
+        }
+
+        // Sistema de Arrastre (Drag)
+        function makeDraggable(el, ann) {
+            let isDragging = false;
+            let startX, startY;
+
+            el.addEventListener('mousedown', (e) => {
+                if (e.target.classList.contains('resize-handle')) return;
+                isDragging = true;
+                startX = e.clientX - ann.x;
+                startY = e.clientY - ann.y;
+                document.querySelectorAll('.canvas-element').forEach(el => el.classList.remove('active'));
+                el.classList.add('active');
+                e.stopPropagation();
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                ann.x = e.clientX - startX;
+                ann.y = e.clientY - startY;
+                el.style.left = `${ann.x}px`;
+                el.style.top = `${ann.y}px`;
+            });
+
+            document.addEventListener('mouseup', () => { isDragging = false; });
+        }
+
+        // Sistema de Redimensionamiento (Resize)
+        function makeResizable(el, ann) {
+            const handle = el.querySelector('.handle-se');
+            let isResizing = false;
+
+            handle.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                e.stopPropagation();
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                const rect = el.getBoundingClientRect();
+                ann.width = Math.max(20, e.clientX - rect.left);
+                ann.height = Math.max(20, e.clientY - rect.top);
+                el.style.width = `${ann.width}px`;
+                el.style.height = `${ann.height}px`;
+            });
+
+            document.addEventListener('mouseup', () => { isResizing = false; });
+        }
+
+        // Botones de Herramientas
+        addTextBtn.onclick = () => {
+            pageAnnotations[pageNum].push({ type: 'text', x: 50, y: 50, text: 'Texto nuevo', fontSize: 16, color: '#000000' });
+            renderPage(pageNum);
+        };
+
+        addWhiteoutBtn.onclick = () => {
+            pageAnnotations[pageNum].push({ type: 'whiteout', x: 50, y: 50, width: 120, height: 30 });
+            renderPage(pageNum);
+        };
+
+        imageInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                pageAnnotations[pageNum].push({ type: 'image', x: 50, y: 50, width: 150, height: 150, src: event.target.result });
+                renderPage(pageNum);
+            };
+            reader.readAsDataURL(file);
+            imageInput.value = '';
+        };
+
+        // Borrar Página Activa
+        deletePageBtn.onclick = async () => {
+            if (pdfDoc.numPages <= 1) {
+                alert("No puedes eliminar la única página restante.");
+                return;
+            }
+            if (!confirm(`¿Estás seguro de borrar la página ${pageNum}?`)) return;
+
+            const pdfDocLib = await PDFLib.PDFDocument.load(currentFileArrayBuffer);
+            pdfDocLib.removePage(pageNum - 1);
+            currentFileArrayBuffer = await pdfDocLib.save();
+            await loadPDF(currentFileArrayBuffer);
+            alert("Página eliminada.");
+        };
+
+        // Extraer Página Activa
+        extractPageBtn.onclick = async () => {
+            if (!confirm(`¿Extraer la página ${pageNum} como un nuevo PDF independiente?`)) return;
+
+            const pdfDocLib = await PDFLib.PDFDocument.load(currentFileArrayBuffer);
+            const newPdf = await PDFLib.PDFDocument.create();
+            const [extractedPage] = await newPdf.copyPages(pdfDocLib, [pageNum - 1]);
+            newPdf.addPage(extractedPage);
+
+            const pdfBytes = await newPdf.save();
+            downloadBlob(pdfBytes, "pagina_extraida.pdf");
+        };
+
+        // Guardar y Compilar PDF final con pdf-lib
+        saveBtn.onclick = async () => {
+            try {
+                const pdfDocLib = await PDFLib.PDFDocument.load(currentFileArrayBuffer);
+                const pages = pdfDocLib.getPages();
+
+                for (let pNum = 1; pNum <= pages.length; pNum++) {
+                    const anns = pageAnnotations[pNum] || [];
+                    if (anns.length === 0) continue;
+
+                    const page = pages[pNum - 1];
+                    const { width, height } = page.getSize();
+                    // Escala de renderizado vs tamaño real del PDF (visor scale 1.5)
+                    const renderScale = 1.5;
+
+                    for (const ann of anns) {
+                        // Coordenadas en PDF-Lib (el origen Y en PDF-lib es abajo-izquierda, en DOM es arriba-izquierda)
+                        const pdfX = ann.x / renderScale;
+                        const pdfY = height - ((ann.y + (ann.height || 20)
